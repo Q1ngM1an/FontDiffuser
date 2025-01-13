@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 def get_nonorm_transform(resolution):
-    nonorm_transform =  transforms.Compose(
+    nonorm_transform = transforms.Compose(
             [transforms.Resize((resolution, resolution), 
                                interpolation=transforms.InterpolationMode.BILINEAR), 
              transforms.ToTensor()])
@@ -85,7 +85,8 @@ class FontDataset(Dataset):
                 choose_index = style_list.index(choose_style)
                 style_list.pop(choose_index)
                 choose_neg_name = f"{self.root}/train/TargetImage/{choose_style}/{choose_style}+{content}.jpg"
-                choose_neg_names.append(choose_neg_name)
+                if os.path.exists(choose_neg_name):
+                    choose_neg_names.append(choose_neg_name)
 
             # Load neg_images
             for i, neg_name in enumerate(choose_neg_names):

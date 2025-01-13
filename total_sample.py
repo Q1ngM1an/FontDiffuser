@@ -22,14 +22,17 @@ from utils import (ttf2im,
                    save_single_image,
                    save_image_with_content_style)
 
+from configs.fontdiffuser import get_parser
+from configs.config_file import sample_total_image
+import argparse
+import torchvision
+
 
 def arg_parse():
-    from configs.fontdiffuser import get_parser
-
     parser = get_parser()
     parser.add_argument("--ckpt_dir", type=str, default=None)
     parser.add_argument("--demo", action="store_true")
-    parser.add_argument("--controlnet", type=bool, default=False, 
+    parser.add_argument("--controlnet", type=bool, default=False,
                         help="If in demo mode, the controlnet can be added.")
     parser.add_argument("--character_input", action="store_true")
     parser.add_argument("--content_character", type=str, default=None)
@@ -38,7 +41,7 @@ def arg_parse():
     parser.add_argument("--save_image", action="store_true")
     parser.add_argument("--save_image_dir", type=str, default=None,
                         help="The saving directory.")
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:sty_0")
     parser.add_argument("--ttf_path", type=str, default="ttf/KaiXinSongA.ttf")
     args = parser.parse_args()
     style_image_size = args.style_image_size
@@ -49,7 +52,7 @@ def arg_parse():
     return args
 
 
-def image_process(args, content_image=None, style_image=None):
+def image_process(args, content_image=None, style_image=None, content_image_path=None, style_image_path=None):
     if not args.demo:
         # Read content image and style image
         if args.character_input:
@@ -60,9 +63,9 @@ def image_process(args, content_image=None, style_image=None):
             content_image = ttf2im(font=font, char=args.content_character)
             content_image_pil = content_image.copy()
         else:
-            content_image = Image.open(args.content_image_path).convert('RGB')
+            content_image = Image.open(content_image_path).convert('RGB')
             content_image_pil = None
-        style_image = Image.open(args.style_image_path).convert('RGB')
+        style_image = Image.open(style_image_path).convert('RGB')
     else:
         assert style_image is not None, "The style image should not be None."
         if args.character_input:
@@ -74,15 +77,17 @@ def image_process(args, content_image=None, style_image=None):
         else:
             assert content_image is not None, "The content image should not be None."
         content_image_pil = None
-        
+
     ## Dataset transform
     content_inference_transforms = transforms.Compose(
-        [transforms.Resize(args.content_image_size, \
-                            interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5])])
+        [
+            transforms.Resize(args.content_image_size, \
+                           interpolation=transforms.InterpolationMode.BILINEAR),
+         transforms.ToTensor(),
+         transforms.Normalize([0.5], [0.5])])
     style_inference_transforms = transforms.Compose(
-        [transforms.Resize(args.style_image_size, \
+        [
+            transforms.Resize(args.style_image_size, \
                            interpolation=transforms.InterpolationMode.BILINEAR),
          transforms.ToTensor(),
          transforms.Normalize([0.5], [0.5])])
@@ -90,6 +95,7 @@ def image_process(args, content_image=None, style_image=None):
     style_image = style_inference_transforms(style_image)[None, :]
 
     return content_image, style_image, content_image_pil
+
 
 def load_fontdiffuer_pipeline(args):
     # Load the model state_dict
@@ -123,18 +129,18 @@ def load_fontdiffuer_pipeline(args):
     return pipe
 
 
-def sampling(args, pipe, content_image=None, style_image=None):
+def sampling(args, pipe, content_image=None, style_image=None, content_image_path=None, style_image_path=None):
     if not args.demo:
         os.makedirs(args.save_image_dir, exist_ok=True)
-        # saving sampling config
-        save_args_to_yaml(args=args, output_file=f"{args.save_image_dir}/sampling_config.yaml")
 
     if args.seed:
         set_seed(seed=args.seed)
-    
-    content_image, style_image, content_image_pil = image_process(args=args, 
-                                                                  content_image=content_image, 
-                                                                  style_image=style_image)
+
+    content_image, style_image, content_image_pil = image_process(args=args,
+                                                                  content_image=content_image,
+                                                                  style_image=style_image,
+                                                                  content_image_path=content_image_path,
+                                                                  style_image_path=style_image_path)
     if content_image == None:
         print(f"The content_character you provided is not in the ttf. \
                 Please change the content_character or you can change the ttf.")
@@ -143,7 +149,8 @@ def sampling(args, pipe, content_image=None, style_image=None):
     with torch.no_grad():
         content_image = content_image.to(args.device)
         style_image = style_image.to(args.device)
-        print(f"Sampling by DPM-Solver++ ......")
+        image_name = content_image_path.split('\\')[-1]
+        print(f"Sampling %s" % (image_name))
         start = time.time()
         images = pipe.generate(
             content_images=content_image,
@@ -163,38 +170,37 @@ def sampling(args, pipe, content_image=None, style_image=None):
 
         if args.save_image:
             print(f"Saving the image ......")
-            images[0] = images[0].convert("L")
             save_single_image(save_dir=args.save_image_dir, image=images[0])
             if args.character_input:
                 save_image_with_content_style(save_dir=args.save_image_dir,
-                                            image=images[0],
-                                            content_image_pil=content_image_pil,
-                                            content_image_path=None,
-                                            style_image_path=args.style_image_path,
-                                            resolution=args.resolution)
+                                              image=images[0],
+                                              content_image_pil=content_image_pil,
+                                              content_image_path=None,
+                                              style_image_path=style_image_path,
+                                              resolution=args.resolution)
             else:
                 save_image_with_content_style(save_dir=args.save_image_dir,
-                                            image=images[0],
-                                            content_image_pil=None,
-                                            content_image_path=args.content_image_path,
-                                            style_image_path=args.style_image_path,
-                                            resolution=args.resolution)
+                                              image=images[0],
+                                              content_image_pil=None,
+                                              content_image_path=content_image_path,
+                                              style_image_path=style_image_path,
+                                              resolution=args.resolution)
             print(f"Finish the sampling process, costing time {end - start}s")
         return images[0]
 
 
 def load_controlnet_pipeline(args,
-                             config_path="lllyasviel/sd-controlnet-canny", 
-                             ckpt_path="runwayml/stable-diffusion-v1-5"):
+                             config_path="lllyasviel/sd-controlnet-canny",
+                             ckpt_path="runwayml/stable-diffusion-v1-sty_5"):
     from diffusers import ControlNetModel, AutoencoderKL
     # load controlnet model and pipeline
     from diffusers import StableDiffusionControlNetPipeline, UniPCMultistepScheduler
-    controlnet = ControlNetModel.from_pretrained(config_path, 
+    controlnet = ControlNetModel.from_pretrained(config_path,
                                                  torch_dtype=torch.float16,
                                                  cache_dir=f"{args.ckpt_dir}/controlnet")
     print(f"Loaded ControlNet Model Successfully!")
-    pipe = StableDiffusionControlNetPipeline.from_pretrained(ckpt_path, 
-                                                             controlnet=controlnet, 
+    pipe = StableDiffusionControlNetPipeline.from_pretrained(ckpt_path,
+                                                             controlnet=controlnet,
                                                              torch_dtype=torch.float16,
                                                              cache_dir=f"{args.ckpt_dir}/controlnet_pipeline")
     # faster
@@ -205,7 +211,7 @@ def load_controlnet_pipeline(args,
     return pipe
 
 
-def controlnet(text_prompt, 
+def controlnet(text_prompt,
                pil_image,
                pipe):
     image = np.array(pil_image)
@@ -214,12 +220,12 @@ def controlnet(text_prompt,
     image = image[:, :, None]
     image = np.concatenate([image, image, image], axis=2)
     canny_image = Image.fromarray(image)
-    
+
     seed = random.randint(0, 10000)
     generator = torch.manual_seed(seed)
-    image = pipe(text_prompt, 
-                 num_inference_steps=50, 
-                 generator=generator, 
+    image = pipe(text_prompt,
+                 num_inference_steps=50,
+                 generator=generator,
                  image=canny_image,
                  output_type='pil').images[0]
     return image
@@ -228,26 +234,65 @@ def controlnet(text_prompt,
 def load_instructpix2pix_pipeline(args,
                                   ckpt_path="timbrooks/instruct-pix2pix"):
     from diffusers import StableDiffusionInstructPix2PixPipeline, EulerAncestralDiscreteScheduler
-    pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(ckpt_path, 
+    pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(ckpt_path,
                                                                   torch_dtype=torch.float16)
     pipe.to(args.device)
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
     return pipe
 
+
 def instructpix2pix(pil_image, text_prompt, pipe):
     image = pil_image.resize((512, 512))
     seed = random.randint(0, 10000)
     generator = torch.manual_seed(seed)
-    image = pipe(prompt=text_prompt, image=image, generator=generator, 
+    image = pipe(prompt=text_prompt, image=image, generator=generator,
                  num_inference_steps=20, image_guidance_scale=1.1).images[0]
 
     return image
 
 
-if __name__=="__main__":
-    args = arg_parse()
-    
-    # load fontdiffuser pipeline
+def save_images(images, path, **kwargs):
+    grid = torchvision.utils.make_grid(images, **kwargs)
+    tran = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((256, 256)),
+        torchvision.transforms.ToPILImage()
+    ])
+    im = tran(grid)
+    im.save(path)
+    return im
+
+
+def generate_img(args):
     pipe = load_fontdiffuer_pipeline(args=args)
-    out_image = sampling(args=args, pipe=pipe)
+    for style in os.listdir(args.style_image_dir):
+        style_image_path = os.path.join(args.style_image_dir, style, args.style_image)
+        content_images = os.listdir(args.content_image_dir)
+        for image_name in content_images:
+            content_image_path = os.path.join(args.content_image_dir, image_name)
+            out_image = sampling(args=args, pipe=pipe, content_image_path=content_image_path, style_image_path=style_image_path)
+            transform = torchvision.transforms.ToTensor()
+            out_image = transform(out_image)
+            save_path = os.path.join(args.save_image_dir, style)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            save_images(out_image, os.path.join(save_path, image_name))
+
+
+
+if __name__ == "__main__":
+    args1 = arg_parse()
+    args2 = sample_total_image().parse_args()
+    args_dict = {**vars(args1), **vars(args2)}
+    args = argparse.Namespace(**args_dict)
+    style_path_ls = ["../../Font-470/test_SFUC", "../../Font-470/test_set_8/newfont", "../../Font-470/test"]
+    content_path_ls = ["SFUC", "UFSC", "UFUC"]
+    chara_ls = ["谶.jpg", "麓.jpg", "谶.jpg"]
+    for i in range(3):
+        args.style_image_dir = style_path_ls[i]
+        args.content_image_dir = os.path.join("../../Font-470/sample", content_path_ls[i])
+        args.style_image = chara_ls[i]
+        args.save_image_dir = os.path.join("outputs/FontDiffuser/generate_images", content_path_ls[i])
+        if not os.path.exists(args.save_image_dir):
+            os.mkdir(args.save_image_dir)
+        generate_img(args)

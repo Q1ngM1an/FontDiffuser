@@ -4,6 +4,7 @@ outputs/
 run_sh/
 ckpt/
 ttf/
+dataset_helper/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -181,3 +182,4 @@ tags
 
 # wandb
 wandb
+/dataset/dataset1/

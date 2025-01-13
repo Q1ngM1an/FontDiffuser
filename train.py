@@ -117,6 +117,8 @@ def main():
             style_transforms, 
             target_transforms],
         scr=args.phase_2)
+
+
     train_dataloader = torch.utils.data.DataLoader(
         train_font_dataset, shuffle=True, batch_size=args.train_batch_size, collate_fn=CollateFN())
     
